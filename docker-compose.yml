@@ -1,0 +1,46 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: standup_postgres
+    environment:
+      POSTGRES_USER: standup_user
+      POSTGRES_PASSWORD: standup_password
+      POSTGRES_DB: standup_db
+    ports:
+      - "5430:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U standup_user -d standup_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: standup_app
+    environment:
+      DATABASE_URL: postgresql+asyncpg://standup_user:standup_password@postgres:5432/standup_db
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET}
+      SLACK_DEFAULT_CHANNEL: ${SLACK_DEFAULT_CHANNEL}
+      DEFAULT_STANDUP_TIME: ${DEFAULT_STANDUP_TIME:-09:00}
+      SCHEDULER_TIMEZONE: ${SCHEDULER_TIMEZONE:-America/New_York}
+      ENV: ${ENV:-prod}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+volumes:
+  postgres_data:
