@@ -2,10 +2,14 @@
 
 import logging
 from datetime import datetime, time
+from zoneinfo import ZoneInfo
 import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
+from app.db.repository import WorkspaceRepository
+from app.services.standup_service import send_pending_standups_for_workspace
 
 logger = logging.getLogger(__name__)
 
@@ -25,50 +29,34 @@ def get_scheduler() -> AsyncIOScheduler:
     return scheduler
 
 
-async def start_scheduler() -> None:
+async def start_scheduler(session: AsyncSession) -> None:
     """Start the scheduler.
 
     This should be called on FastAPI startup.
     """
     global scheduler
     scheduler = get_scheduler()
+    workspace_repo = WorkspaceRepository(session)
+    workspaces = await workspace_repo.list_all_active()
 
-    if scheduler.running:
-        logger.warning("Scheduler already running")
-        return
+    for workspace in workspaces:
+        hour, minute = map(int, workspace.default_time.split(":"))
 
-    scheduler.start()
-    logger.info("APScheduler started")
-
-    # Schedule the daily standup dispatch
-    try:
-        # Parse default time (HH:MM format)
-        parts = settings.default_standup_time.split(":")
-        hour, minute = int(parts[0]), int(parts[1])
-
-        # Create cron trigger for weekdays at specified time
         trigger = CronTrigger(
             hour=hour,
             minute=minute,
-            day_of_week="mon-fri",
-            timezone=settings.scheduler_timezone,
+            timezone=ZoneInfo(workspace.timezone),
         )
 
         scheduler.add_job(
-            dispatch_pending_standups,
+            send_pending_standups_for_workspace,
             trigger=trigger,
-            id="daily_standup_dispatch",
-            name="Daily Standup Dispatch",
+            args=[workspace.id],
+            id=f"standup-{workspace.id}",
             replace_existing=True,
         )
 
-        logger.info(
-            f"Scheduled daily standup dispatch at {settings.default_standup_time} "
-            f"({settings.scheduler_timezone}) on weekdays"
-        )
-    except Exception as e:
-        logger.error(f"Failed to schedule standup job: {e}")
-        raise
+    scheduler.start()
 
 
 async def stop_scheduler() -> None:
@@ -82,19 +70,19 @@ async def stop_scheduler() -> None:
         logger.info("APScheduler stopped")
 
 
-async def dispatch_pending_standups() -> None:
+async def dispatch_pending_standups(workspace_id: str) -> None:
     """Main job: Check for users without reports and send DMs.
 
     This is the core standup dispatch logic that runs on schedule.
     """
     from app.db.base import async_session
-    from app.services.standup_service import send_pending_standups
+    from app.services.standup_service import send_pending_standups_for_workspace
 
     logger.info("Running standup dispatch job")
 
     try:
         async with async_session() as session:
-            await send_pending_standups(session)
+            await send_pending_standups_for_workspace(workspace_id=workspace_id)
         logger.info("Standup dispatch completed")
     except Exception as e:
         logger.error(f"Error during standup dispatch: {e}", exc_info=True)

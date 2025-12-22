@@ -6,7 +6,7 @@ from app.utils.slack_utils import build_user_profile_link, escape_slack_text
 from app.utils.timeutils import format_date_for_display
 
 
-def build_standup_start_message() -> Dict[str, Any]:
+def build_standup_start_message(name: str) -> Dict[str, Any]:
     """Build the initial standup DM message (Question 1).
 
     Returns:
@@ -19,7 +19,7 @@ def build_standup_start_message() -> Dict[str, Any]:
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": ":wave: Hey! Time for today's standup.\n\nFirst question: *How are you feeling today?*",
+                    "text": f":wave: Hey {name}! Time for today's standup.\n\nFirst question: *How are you feeling today?*",
                 },
             },
             {
@@ -384,7 +384,7 @@ def build_completion_message() -> Dict[str, Any]:
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": ":white_check_mark: *Thanks!* Your standup has been posted. Great job!",
+                    "text": ":white_check_mark: *Thanks!* Your standup has been posted. Have a nice day!",
                 },
             }
         ],

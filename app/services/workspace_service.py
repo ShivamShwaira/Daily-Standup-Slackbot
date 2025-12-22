@@ -12,6 +12,8 @@ async def get_or_create_workspace(
     session: AsyncSession,
     slack_team_id: str,
     report_channel_id: str,
+    bot_token: Optional[str] = None,
+    bot_user_id: Optional[str] = None,
 ) -> dict:
     """Get or create workspace during bot installation.
 
@@ -24,7 +26,7 @@ async def get_or_create_workspace(
         Dict with workspace info
     """
     repo = WorkspaceRepository(session)
-    workspace = await repo.get_or_create_default(slack_team_id, report_channel_id)
+    workspace = await repo.get_or_create_default(slack_team_id, report_channel_id, bot_token, bot_user_id)
 
     await session.commit()
     logger.info(f"Workspace initialized: {slack_team_id}")

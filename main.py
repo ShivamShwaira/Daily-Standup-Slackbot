@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
+from app.db.base import async_session
 from app.core.logging_config import configure_logging
 from app.core.config import settings
 from app.db.base import init_db, close_db
@@ -19,6 +20,7 @@ from app.slack.onboarding_handlers import (
 from app.services.scheduler import start_scheduler, stop_scheduler
 from app.api.health import router as health_router
 from app.api.admin_routes import router as admin_router
+from app.api.slack_routes import router as slack_router
 
 # Configure logging
 configure_logging()
@@ -45,8 +47,9 @@ async def lifespan(app: FastAPI):
         logger.info("Slack handlers registered")
 
         # Start scheduler
-        await start_scheduler()
-        logger.info("Scheduler started")
+        async with async_session() as session:
+            await start_scheduler(session=session)
+            logger.info("Scheduler started")
 
     except Exception as e:
         logger.error(f"Startup failed: {e}", exc_info=True)
@@ -88,6 +91,7 @@ app.add_middleware(
 # Mount routers
 app.include_router(health_router)
 app.include_router(admin_router)
+app.include_router(slack_router)
 
 
 # Mount Slack Bolt adapter

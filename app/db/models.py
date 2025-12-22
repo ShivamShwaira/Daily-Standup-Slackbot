@@ -14,6 +14,8 @@ class Workspace(Base):
     id = Column(Integer, primary_key=True)
     slack_team_id = Column(String(255), unique=True, nullable=False)
     report_channel_id = Column(String(255), nullable=False)
+    bot_token = Column(String(255), nullable=True)
+    bot_user_id = Column(String(255), nullable=True)
     default_time = Column(String(10), nullable=False, default="09:30")
     timezone = Column(String(50), nullable=False, default="Asia/Kolkata")
     created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)

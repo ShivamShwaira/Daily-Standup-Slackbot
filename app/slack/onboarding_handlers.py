@@ -9,6 +9,7 @@ from app.db.base import async_session
 from app.services.workspace_service import get_or_create_workspace
 from app.services.user_service import create_user, list_users_by_workspace
 from app.schemas.user import UserCreate
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,7 @@ async def register_onboarding_handlers(app: AsyncApp) -> None:
                         slack_user_id=user_id,
                         display_name=display_name,
                         email=email,
-                        timezone=None,  # Can be set later
+                        timezone=settings.scheduler_timezone,  # Can be set later
                     )
                     result = await create_user(session, workspace_id, user_create)
 

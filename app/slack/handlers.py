@@ -48,6 +48,7 @@ async def register_handlers(app: AsyncApp) -> None:
         user_id = message.get("user")
         text = message.get("text", "").strip()
         channel = message.get("channel", "")
+        team_id = body.get("team_id", "")
 
         if not user_id or not text:
             return
@@ -137,7 +138,7 @@ async def register_handlers(app: AsyncApp) -> None:
                     report_id = result.get("report_id")
                     if report_id:
                         try:
-                            post_result = await post_report_to_channel(session, report_id)
+                            post_result = await post_report_to_channel(session, report_id, team_id)
                             if post_result.get("action") == "posted":
                                 logger.info(f"Report {report_id} posted to channel")
                             else:
@@ -165,6 +166,7 @@ async def register_handlers(app: AsyncApp) -> None:
         user_id = body["user"]["id"]
         channel = body["channel"]["id"]
         timestamp = body["message"]["ts"]
+        team_id = body["team_id"] 
         logger.info(f"User {user_id} clicked 'Skip Today'")
 
         try:
@@ -173,7 +175,7 @@ async def register_handlers(app: AsyncApp) -> None:
             display_name = user_info["user"].get("real_name") or user_info["user"].get("name")
 
             async with async_session() as session:
-                result = await handle_skip_today(session, user_id)
+                result = await handle_skip_today(session, user_id, team_id)
 
                 if result.get("action") == "error":
                     # Update original message to remove buttons and show error

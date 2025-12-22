@@ -286,7 +286,7 @@ class StandupStateRepository(BaseCRUDRepository):
 class WorkspaceRepository(BaseCRUDRepository):
     """Async repository for Workspace operations."""
 
-    async def get_or_create_default(self, slack_team_id: str, report_channel_id: str) -> Workspace:
+    async def get_or_create_default(self, slack_team_id: str, report_channel_id: str, bot_token: str, bot_user_id: str) -> Workspace:
         """Get or create default workspace."""
         stmt = select(Workspace).where(Workspace.slack_team_id == slack_team_id)
         result = await self.session.execute(stmt)
@@ -296,6 +296,8 @@ class WorkspaceRepository(BaseCRUDRepository):
             workspace = Workspace(
                 slack_team_id=slack_team_id,
                 report_channel_id=report_channel_id,
+                bot_token=bot_token,
+                bot_user_id=bot_user_id,
             )
             self.session.add(workspace)
             await self.session.flush()
@@ -323,3 +325,13 @@ class WorkspaceRepository(BaseCRUDRepository):
         await self.session.flush()
         logger.info(f"Updated workspace: {workspace_id}")
         return workspace
+    
+    async def list_all_active(self) -> List[Workspace]:
+        """List all active workspaces."""
+        stmt = select(Workspace).order_by(Workspace.id)
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+    
+    async def get_by_id(self, workspace_id: int) -> Optional[Workspace]:
+        """Get workspace by ID."""
+        return await self.session.get(Workspace, workspace_id)

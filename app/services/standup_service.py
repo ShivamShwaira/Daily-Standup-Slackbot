@@ -3,14 +3,16 @@
 import logging
 from datetime import date, datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models import Workspace
 from app.db.repository import (
     UserRepository,
     StandupReportRepository,
     StandupStateRepository,
 )
-from app.slack.bolt_app import get_slack_client
+from app.slack.bolt_app import get_slack_client_for_workspace
 from app.slack.messages import (
     build_standup_start_message,
     build_question_message,
@@ -21,6 +23,8 @@ from app.slack.messages import (
 )
 from app.utils.timeutils import get_user_date, get_user_datetime_now
 from app.core.config import settings
+from app.db.repository import WorkspaceRepository
+from app.db.base import async_session
 
 logger = logging.getLogger(__name__)
 
@@ -33,68 +37,142 @@ QUESTIONS = [
 ]
 
 
-async def send_pending_standups(session: AsyncSession) -> None:
-    """Check for users without reports and send initial DMs.
+# async def send_pending_standups(session: AsyncSession) -> None:  #Old method, kept for reference
+#     """Check for users without reports and send initial DMs.
 
-    Args:
-        session: Async database session
-    """
+#     Args:
+#         session: Async database session
+#     """
+#     user_repo = UserRepository(session)
+#     report_repo = StandupReportRepository(session)
+#     state_repo = StandupStateRepository(session)
+#     slack_client = get_slack_client()
+
+#     # Get all active users
+#     users = await user_repo.list_active()
+#     logger.info(f"Processing {len(users)} active users for standup dispatch")
+
+#     for user in users:
+#         try:
+#             # Determine user's timezone
+#             user_tz = user.timezone or settings.scheduler_timezone
+#             user_date = get_user_date(user_tz)
+
+#             # Check if user already has a report for today
+#             existing_report = await report_repo.get_by_user_date(user.id, user_date)
+
+#             if existing_report:
+#                 logger.debug(f"User {user.slack_user_id} already has report for {user_date}")
+#                 continue
+
+#             # Check for missed reports from previous days
+#             latest_report = await report_repo.get_latest_by_user(user.id)
+#             missed_report_date = None
+
+#             if latest_report and latest_report.report_date < user_date:
+#                 missed_report_date = latest_report.report_date
+
+#             # Send appropriate message
+#             if missed_report_date:
+#                 # Send catch-up message
+#                 logger.info(
+#                     f"Sending catch-up message to {user.slack_user_id} "
+#                     f"for date {missed_report_date}"
+#                 )
+#                 await _send_dm(
+#                     slack_client,
+#                     user.slack_user_id,
+#                     build_missed_standup_message(missed_report_date),
+#                 )
+#                 # Set up state for catch-up
+#                 await state_repo.create_or_update(
+#                     user.id,
+#                     pending_report_date=missed_report_date,
+#                     current_question_index=0,
+#                 )
+#             else:
+#                 # Send initial standup message
+#                 logger.info(f"Sending standup to {user.slack_user_id}")
+#                 await _send_dm(
+#                     slack_client,
+#                     user.slack_user_id,
+#                     build_standup_start_message(name=user.display_name),
+#                 )
+#                 # Set up state for new standup
+#                 await state_repo.create_or_update(
+#                     user.id,
+#                     pending_report_date=user_date,
+#                     current_question_index=0,
+#                 )
+
+#         except Exception as e:
+#             logger.error(f"Error processing user {user.slack_user_id}: {e}", exc_info=True)
+
+#     await session.commit()
+
+async def send_pending_standups_for_workspace(workspace_id: int):
+    async with async_session() as session:
+        workspace_repo = WorkspaceRepository(session=session)
+        workspace = await workspace_repo.get_by_id(workspace_id)
+        if not workspace:
+            logger.error(f"Workspace not found: {workspace_id}")
+            return
+        await _send_standups_for_workspace(session, workspace)
+
+
+async def _send_standups_for_workspace(
+    session: AsyncSession,
+    workspace: Workspace,
+) -> None:
     user_repo = UserRepository(session)
     report_repo = StandupReportRepository(session)
     state_repo = StandupStateRepository(session)
-    slack_client = get_slack_client()
 
-    # Get all active users
-    users = await user_repo.list_active()
-    logger.info(f"Processing {len(users)} active users for standup dispatch")
+    slack_client = get_slack_client_for_workspace(bot_token=workspace.bot_token)
+
+    users = await user_repo.list_active_by_workspace(workspace.id)
+
+    logger.info(
+        f"Processing {len(users)} users for workspace {workspace.slack_team_id}"
+    )
 
     for user in users:
         try:
-            # Determine user's timezone
-            user_tz = user.timezone or settings.scheduler_timezone
+            user_tz = user.timezone or workspace.timezone
             user_date = get_user_date(user_tz)
 
-            # Check if user already has a report for today
-            existing_report = await report_repo.get_by_user_date(user.id, user_date)
-
+            existing_report = await report_repo.get_by_user_date(
+                user.id, user_date
+            )
             if existing_report:
-                logger.debug(f"User {user.slack_user_id} already has report for {user_date}")
                 continue
 
-            # Check for missed reports from previous days
             latest_report = await report_repo.get_latest_by_user(user.id)
-            missed_report_date = None
+            missed_report_date = (
+                latest_report.report_date
+                if latest_report and latest_report.report_date < user_date
+                else None
+            )
 
-            if latest_report and latest_report.report_date < user_date:
-                missed_report_date = latest_report.report_date
-
-            # Send appropriate message
             if missed_report_date:
-                # Send catch-up message
-                logger.info(
-                    f"Sending catch-up message to {user.slack_user_id} "
-                    f"for date {missed_report_date}"
-                )
                 await _send_dm(
                     slack_client,
                     user.slack_user_id,
                     build_missed_standup_message(missed_report_date),
                 )
-                # Set up state for catch-up
                 await state_repo.create_or_update(
                     user.id,
                     pending_report_date=missed_report_date,
                     current_question_index=0,
                 )
             else:
-                # Send initial standup message
-                logger.info(f"Sending standup to {user.slack_user_id}")
                 await _send_dm(
                     slack_client,
                     user.slack_user_id,
-                    build_standup_start_message(),
+                    build_standup_start_message(
+                        name=user.display_name
+                    ),
                 )
-                # Set up state for new standup
                 await state_repo.create_or_update(
                     user.id,
                     pending_report_date=user_date,
@@ -102,10 +180,13 @@ async def send_pending_standups(session: AsyncSession) -> None:
                 )
 
         except Exception as e:
-            logger.error(f"Error processing user {user.slack_user_id}: {e}", exc_info=True)
+            logger.error(
+                f"Workspace {workspace.team_id} | "
+                f"User {user.slack_user_id}: {e}",
+                exc_info=True,
+            )
 
     await session.commit()
-
 
 async def handle_user_answer(
     session: AsyncSession,
@@ -177,6 +258,7 @@ async def handle_user_answer(
 async def handle_skip_today(
     session: AsyncSession,
     slack_user_id: str,
+    team_id: str,
 ) -> Optional[dict]:
     """Handle user skipping today's standup.
 
@@ -190,6 +272,9 @@ async def handle_skip_today(
     user_repo = UserRepository(session)
     report_repo = StandupReportRepository(session)
     state_repo = StandupStateRepository(session)
+    workspace_repo = WorkspaceRepository(session)
+
+    workspace = await workspace_repo.get_by_team_id(team_id)
 
     user = await user_repo.get_by_slack_id(slack_user_id)
     if not user:
@@ -225,10 +310,10 @@ async def handle_skip_today(
         return {"action": "skipped"}
 
     try:
-        slack_client = get_slack_client()
+        slack_client = get_slack_client_for_workspace(bot_token=workspace.bot_token)
         await _post_to_channel(
             slack_client,
-            settings.slack_default_channel,
+            workspace.report_channel_id,
             build_skip_notification_message(user.display_name, slack_user_id),
         )
     except Exception as e:
@@ -240,6 +325,7 @@ async def handle_skip_today(
 async def post_report_to_channel(
     session: AsyncSession,
     report_id: int,
+    team_id: str,
 ) -> Optional[dict]:
     """Post completed standup report to the configured channel.
 
@@ -252,7 +338,10 @@ async def post_report_to_channel(
     """
     report_repo = StandupReportRepository(session)
     user_repo = UserRepository(session)
-    slack_client = get_slack_client()
+    workspace_repo = WorkspaceRepository(session)
+
+    workspace = await workspace_repo.get_by_team_id(team_id)
+    slack_client = get_slack_client_for_workspace(bot_token=workspace.bot_token)
 
     # Fetch report using repository
     report = await report_repo.get_by_id(report_id)
@@ -275,9 +364,9 @@ async def post_report_to_channel(
             yesterday=report.yesterday,
             today=report.today,
             blockers=report.blockers,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(ZoneInfo(workspace.timezone)),
         )
-
+    
         # Post to channel
         await _post_to_channel(
             slack_client,

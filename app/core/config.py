@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     slack_bot_token: str = Field(..., alias="SLACK_BOT_TOKEN")
     slack_signing_secret: str = Field(..., alias="SLACK_SIGNING_SECRET")
     slack_default_channel: str = Field(..., alias="SLACK_DEFAULT_CHANNEL")
+    slack_client_id: str = Field(..., alias="CLIENT_ID")
+    slack_client_secret: str = Field(..., alias="CLIENT_SECRET")
 
     # Database Configuration
     database_url: str = Field(
