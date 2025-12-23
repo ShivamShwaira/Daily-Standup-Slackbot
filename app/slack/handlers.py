@@ -166,7 +166,7 @@ async def register_handlers(app: AsyncApp) -> None:
         user_id = body["user"]["id"]
         channel = body["channel"]["id"]
         timestamp = body["message"]["ts"]
-        team_id = body["team_id"] 
+        team_id = body["team"]["id"] 
         logger.info(f"User {user_id} clicked 'Skip Today'")
 
         try:
